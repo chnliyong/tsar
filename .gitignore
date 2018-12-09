@@ -7,3 +7,5 @@ src/tsar
 *.dSYM
 cscope.out
 ttsar.sh
+/lualib/lua-cjson-2.1.0
+/lualib/luasocket-2.0.2

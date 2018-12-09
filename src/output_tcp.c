@@ -18,6 +18,8 @@
 
 
 #include <fcntl.h>
+#include <string.h>
+#include <time.h>
 #include "tsar.h"
 
 void
@@ -82,6 +84,79 @@ send:
     close(fd);
 }
 
+
+static void
+get_instance_id(char *instance_id, int max_len) {
+    FILE *fp;
+    char data[1024 * 1024];
+    int len;
+    char *token;
+
+    if ((fp = fopen("/etc/instance-info", "r")) != NULL) {
+        len = (int)fread(data, 1, 4906, fp);
+        fclose(fp);
+
+        if (len > 0 && data[len-1] != '\0') {
+            data[len-1] = '\0';
+        }
+
+        token = strtok(data, " \t\r\n=");
+        while (token != NULL) {
+            if (strcmp(token, "INSTANCE_ID") == 0) {
+                token = strtok(NULL, " \t\r\n=");
+                break;
+            } else {
+                token = strtok(NULL, " \t\r\n=");
+            }
+        }
+        strncpy(instance_id, token, max_len);
+    } else {
+        strncpy(instance_id, "nil", max_len);
+    }
+}
+
+
+/* 
+ * The output data format is: <hostname>\ttsar\t<metric data>
+ * This function currently add an instanceId and timestamp tag
+ * for the record, the result is:
+ *   <hostname>\ttsar/instanceId=<id>,timestamp=<unix time>\t<metric data>.
+ */
+static int
+add_tags(char *data, int len, int max_len)
+{
+    char instance_id[128];
+    char tags[256];
+    int tags_len;
+    char *p, *q;
+    unsigned long long unix_time;
+
+    data[len] = '\0';
+
+    get_instance_id(instance_id, 128);
+
+    unix_time = time(NULL);
+    /* The cron job execute every 60 seconds, align the timestamp */
+    unix_time = unix_time - (unix_time % 60ULL);
+
+    sprintf(tags, "/instanceId=%s,timestamp=%lld", instance_id, unix_time);
+    tags_len = strlen(tags);
+
+    p = strrchr(data, '\t');
+
+    if (p != NULL && len + tags_len < max_len) {
+        for (q = data + len + tags_len; q >= p + tags_len; q--) {
+            *q = *(q - tags_len);
+        }
+        for (q = p; q < p + tags_len; q++) {
+            *q = tags[q-p];
+        }
+        return len + tags_len;
+    }
+    return len;
+}
+
+
 void
 output_multi_tcp(int have_collect)
 {
@@ -110,6 +185,8 @@ output_multi_tcp(int have_collect)
     fflush(stdout);
     len = read(out_pipe[0], data, LEN_10M);
     close(out_pipe[0]);
+    len = add_tags(data, len, LEN_10M);
+    do_debug(LOG_DEBUG, data);
     /*now ,the data to send is gotten*/
     for(i = 0; i < conf.output_tcp_addr_num; i++){
         send_data_tcp(conf.output_tcp_addr[i], data, len);
