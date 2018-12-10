@@ -139,7 +139,7 @@ add_tags(char *data, int len, int max_len)
     /* The cron job execute every 60 seconds, align the timestamp */
     unix_time = unix_time - (unix_time % 60ULL);
 
-    sprintf(tags, "/instanceId=%s,timestamp=%lld", instance_id, unix_time);
+    sprintf(tags, "#%lld#instanceId=%s", unix_time, instance_id);
     tags_len = strlen(tags);
 
     p = strrchr(data, '\t');
